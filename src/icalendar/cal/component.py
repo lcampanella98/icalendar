@@ -943,16 +943,21 @@ class Component(CaselessDict):
         for i, prop in enumerate(properties):
             JCalParsingError.validate_property(prop, cls, path=[1, i])
             prop_name = prop[0]
-            prop_value = prop[2]
+            value_type = prop[2]
             prop_cls: type[VPROPERTY] = cls.types_factory.for_property(
-                prop_name, prop_value
+                prop_name, value_type
             )
             with JCalParsingError.reraise_with_path_added(1, i):
                 v_prop = prop_cls.from_jcal(prop)
-            # if we use the default value for that property, we can delete the
-            # VALUE parameter
-            if prop_cls == cls.types_factory.for_property(prop_name):
+            # RFC 7265, section 3.5.1: reconstruct the VALUE parameter from the
+            # jCal type identifier (prop[2]) unless it is "unknown" or the
+            # property's default type. Compare the type string, not the prop
+            # class: multi-type classes like vDDDTypes cover several value types.
+            default_type = cls.types_factory.default_value_type(prop_name)
+            if value_type.lower() in ("unknown", default_type):
                 del v_prop.VALUE
+            else:
+                v_prop.VALUE = value_type
             component.add(prop_name, v_prop)
         if not isinstance(subcomponents, list):
             raise JCalParsingError(

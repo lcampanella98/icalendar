@@ -245,6 +245,27 @@ class TypesFactory(CaselessDict):
 
         return self[self.types_map.get(name, "unknown")]
 
+    def default_value_type(self, name: str) -> str:
+        """Return a property's default value type as a jCal type identifier.
+
+        The value type is the lower-case identifier used in the jCal type
+        position, as defined by :rfc:`7265`, for example ``"date-time"`` or
+        ``"text"``.
+
+        Parameters:
+            name: The property name.
+
+        Returns:
+            The default value type, or ``"unknown"`` for a property that has no
+            default value type.
+        """
+        key = self.types_map.get(name.lower(), "unknown")
+        # vDDDTypes is registered under several keys (date, date-time, duration)
+        # and its default_value is always DATE-TIME, so the key names the type.
+        if self.get(key) is vDDDTypes:
+            return key
+        return self[key].default_value.lower()
+
     def to_ical(self, name, value):
         """Encodes a named value from a primitive python type to an icalendar
         encoded string.

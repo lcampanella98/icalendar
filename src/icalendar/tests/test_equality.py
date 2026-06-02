@@ -47,6 +47,63 @@ def assert_not_equal(actual_value, expected_value):
     assert expected_value != actual_value
 
 
+def _as_list(value):
+    """A property key can map to a single prop object or a list of them."""
+    return value if isinstance(value, list) else [value]
+
+
+def _required_value_type(prop_value, name):
+    """The value type RFC 7265 section 3.5.1 requires to be explicit, else None.
+
+    A ``VALUE`` parameter is needed only when the property's actual value type
+    differs from its default value type (and is not ``unknown``). We read the
+    actual value type (``prop_value.VALUE``) rather than the stored parameter so
+    that source files leaving a non-default type implicit -- e.g.
+    ``DTSTART:20220101`` (a DATE with no ``VALUE=DATE``) -- still count as
+    requiring it.
+    """
+    value_type = getattr(prop_value, "VALUE", None)
+    if value_type is None:
+        pytest.fail(
+            f"{name}: cannot determine the value type of a "
+            f"{type(prop_value).__name__} value -- it exposes no VALUE attribute. "
+            f"Every standalone property value should report a VALUE "
+            f"(its explicit parameter or its default value type)."
+        )
+    value_type = value_type.upper()
+    default_type = Component.types_factory.default_value_type(name).upper()
+    return None if value_type in ("UNKNOWN", default_type) else value_type
+
+
+def _explicit_value_type(prop_value):
+    """The ``VALUE`` parameter actually stored on the property, or None."""
+    params = getattr(prop_value, "params", None)
+    stored = params.get("VALUE") if params else None
+    return stored.upper() if stored else None
+
+
+def assert_value_params_rfc_conformant(component, path=""):
+    """Assert each property's ``VALUE`` parameter is consistent with its type.
+
+    ``Component.__eq__`` ignores parameters, so it cannot tell whether a jCal
+    round-trip preserved the ``VALUE`` parameter. Per RFC 7265 section 3.5.1, a
+    property should carry an explicit ``VALUE`` parameter exactly when its value
+    type is non-default; this checks the stored parameter against the value's
+    own reported type, catching one dropped (or wrongly added) by the round-trip.
+    """
+    here = path or component.name
+    for name in component:
+        for prop_value in _as_list(component.get(name)):
+            stored = _explicit_value_type(prop_value)
+            required = _required_value_type(prop_value, name)
+            assert stored == required, (
+                f"VALUE param inconsistent with value type for {here}.{name}: "
+                f"stored {stored!r}, expected {required!r}"
+            )
+    for sub in component.subcomponents:
+        assert_value_params_rfc_conformant(sub, f"{here}.{sub.name}")
+
+
 def test_parsed_calendars_are_equal_if_parsed_again(source_file, tzp):
     """Ensure that a calendar equals the same calendar.
 
@@ -67,6 +124,7 @@ def test_parsed_calendars_are_equal_if_parsed_again_jcal(source_file, tzp):
         )
     copy_of_calendar = Component.from_jcal(source_file.to_jcal())
     assert_equal(copy_of_calendar, source_file)
+    assert_value_params_rfc_conformant(copy_of_calendar)
 
 
 def test_parsed_calendars_are_equal_if_from_same_source(ics_file, tzp):
